@@ -1,0 +1,176 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+include FileUtils
+
+def check_executables
+  `which kindlegen`
+  unless $?.success?
+    abort(<<-ERR.gsub(/^\s+/, ''))
+      kindlegen not found in your PATH. You can get it here:
+
+      http://www.amazon.com/gp/feature.html?docId=1000234621
+    ERR
+  end
+  `which source-highlight`
+  unless $?.success?
+    abort(<<-ERR.gsub(/^\s+/, ''))
+      source-highlight not found in your PATH. You can get it here:
+
+      http://www.gnu.org/software/src-highlite/source-highlight.html#Download
+
+      or use your package manager, in Debian: apt-get install source-highlight
+    ERR
+  end
+end
+
+def load_filelist(regex)
+  `git ls-files`.split("\n").grep(regex)
+end
+
+def create_style_def
+  File.open('default.style', 'w') do |f|
+    f.write(<<-STYLE.gsub(/^\s+/, ''))
+      keyword b;
+      type b;
+      comment i;
+      preproc b;
+      string;
+      number;
+      symbol;
+      function;
+      cbracket;
+      lineno;
+    STYLE
+  end
+end
+
+def create_opf(project, files)
+  print "#{project}.opf..."
+  File.open("#{project}.opf", 'w') do |f|
+    f.write(<<-HEADER.gsub(/^\s+/, ''))
+      <?xml version='1.0' encoding='utf-8'?>
+      <package xmlns='http://www.idpf.org/2007/opf' version='2.0' unique-identifier='#{project}'>
+        <metadata xmlns:dc='http://purl.org/dc/elements/1.1/' xmlns:opf='http://www.idpf.org/2007/opf'>
+          <dc:title>src: #{project}</dc:title>
+          <dc:language>en-us</dc:language>
+          <dc:creator>git-kindle</dc:creator>
+          <dc:subject>Source code of '#{project}'</dc:subject>
+          <dc:date>#{Time.now.strftime("%Y-%m-%d")}</dc:date>
+        </metadata>
+        <manifest>
+    HEADER
+    files.each do |file|
+      f.puts("<item id='#{file}' media-type='text/html' href='#{file}.html' />")
+    end
+    f.puts("<item id='toc.html' media-type='text/html' href='toc.html' />")
+    f.puts("<item id='toc' media-type='application/x-dtbncx+xml' href='toc.ncx' />")
+    f.puts("</manifest>")
+    f.puts("<spine>")
+    f.puts("<itemref idref='toc.html'/>")
+    files.each do |file|
+      f.puts("<itemref idref='#{file}'/>")
+    end
+    f.write(<<-FOOTER.gsub(/^\s+/, ''))
+        </spine>
+        <guide>
+          <reference type='toc' title='Table of Contents' href='toc.html'></reference>
+          <reference type='text' title='Code' href='#{files.first}.html'></reference>
+        </guide>
+      </package>
+    FOOTER
+  end
+  puts " ok"
+end
+
+def create_toc(project, files)
+  print "toc.html..."
+  File.open('toc.html', 'w') do |toc|
+    toc.write(<<-HEADER.gsub(/^\s+/, ''))
+      <html>
+      <head>
+        <title>Table of Contents</title>
+      </head>
+      <body>
+    HEADER
+    toc.puts("<h1>#{project}</h1>")
+    dir = nil
+    files.each do |file|
+      if File.dirname(file) != dir
+        dir = File.dirname(file)
+        toc.puts("<h2>/#{dir}</h2>")
+      end
+      toc.puts("<h3>&nbsp;&nbsp;<a href='#{file}.html'>#{File.basename(file)}<a></h3>")
+    end
+    toc.puts("</body>")
+  end
+  puts " ok"
+end
+
+def create_ncx(project, files)
+  print "#{project}.ncx..."
+  File.open('toc.ncx', 'w') do |f|
+    f.write(<<-HEADER.gsub(/^\s+/, ''))
+      <?xml version='1.0' encoding='UTF-8'?>
+      <!DOCTYPE ncx PUBLIC '-//NISO//DTD ncx 2005-1//EN'
+        'http://www.daisy.org/z3986/2005/ncx-2005-1.dtd'>
+      <ncx xmlns='http://www.daisy.org/z3986/2005/ncx/' version='2005-1' xml:lang='en-US'>
+      <head>
+        <meta name='dtb:uid' content='#{project}'/>
+        <meta name='dtb:depth' content='1'/>
+        <meta name='dtb:totalPageCount' content='0'/>
+        <meta name='dtb:maxPageNumber' content='0'/>
+      </head>
+      <docTitle><text>NCX: Source code of '#{project}'</text></docTitle>
+      <docAuthor><text>git-kindle</text></docAuthor>
+      <navMap>
+        <navPoint class="toc" id="toc" playOrder="0">
+          <navLabel>
+            <text>Table of Contents</text>
+          </navLabel>
+          <content src="toc.html"/>
+        </navPoint>
+    HEADER
+    files.each_with_index do |file, idx|
+      f.write(<<-ENTRY.gsub(/^\s+/, ''))
+        <navPoint class='chapter' id='#{file}' playOrder='#{idx+1}'>
+          <navLabel>
+            <text>#{File.basename(file)}</text>
+          </navLabel>
+          <content src='#{file}.html'/>
+        </navPoint>
+      ENTRY
+    end
+    f.write(<<-FOOTER.gsub(/^\s+/, ''))
+        </navMap>
+      </ncx>
+    FOOTER
+  end
+  puts " ok"
+end
+
+check_executables
+project = File.basename(File.expand_path('.'))
+files = load_filelist(/#{ARGV[0] || '\.[ch]$'}/).sort
+
+cd(".git") do
+  mkdir_p("kindle")
+  cd("kindle") do
+    create_style_def
+    files.each do |file|
+      mkdir_p File.dirname(file)
+      cp "../../#{file}", file
+      print "#{file}..."
+      `source-highlight -d -i #{file} -o #{file}.html`
+      puts " ok"
+    end
+    create_opf(project, files)
+    create_toc(project, files)
+    create_ncx(project, files)
+    print "#{project}.mobi..."
+    `kindlegen #{project}.opf`
+    mv "#{project}.mobi", "../.."
+    puts " ok"
+  end
+  rm_rf("kindle")
+end
