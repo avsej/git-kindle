@@ -100,7 +100,7 @@ def create_toc(project, files)
         dir = File.dirname(file)
         toc.puts("<h2>/#{dir}</h2>")
       end
-      toc.puts("<h3>&nbsp;&nbsp;<a href='#{file}.html'>#{File.basename(file)}<a></h3>")
+      toc.puts("<h3><a href='#{file}.html'>&nbsp;&nbsp;#{File.basename(file)}<a></h3>")
     end
     toc.puts("</body>")
   end
