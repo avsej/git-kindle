@@ -14,7 +14,7 @@ package manager, for example in Debian:
 
 Next you need to install script itself. Assuming you have `$HOME/bin` in your PATH:
 
-    cp git-kindle $HOME/bin/git-kindle
+    curl https://raw.github.com/avsej/git-kindle/master/git-kindle > $HOME/bin/git-kindle
     chmod a+x $HOME/bin/git-kindle
 
 USAGE
